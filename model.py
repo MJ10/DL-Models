@@ -5,7 +5,7 @@ LAMBDA = 0.5
 M_PLUS = 0.9
 M_MINUS = 0.1
 EPSILON = 1e-15
-RECONSTRUCTION_LOSS = 5e-4 * 784
+RECONSTRUCTION_LOSS_CONT = 5e-4 * 784
 IMAGE_HEIGHT = IMAGE_WIDTH = 28
 CONV_KERNEL_SIZE = 3
 CONV_FILTERS = 256
@@ -84,3 +84,30 @@ def main():
 
                     b += uv
 
+    with tf.variable_scope('reconstruction_loss'):
+        v_masked = tf.multiply(v, tf.reshape(y, (-1, 1, CLASSES)))
+        v_masked = tf.reduce_sum(v_masked, axis=2, name='v_masked')
+
+        layer1 = tf.layers.dense(v_masked, RECON_NET_1, activation=tf.nn.relu,
+                                 use_bias=True, kernel_initializer=tf.random_normal_initializer)
+        layer2 = tf.layers.dense(layer1, RECON_NET_2, activation=tf.nn.relu,
+                                 use_bias=True, kernel_initializer=tf.random_normal_initializer)
+
+        layer3 = tf.layers.dense(layer2, RECON_NET_3, activation=tf.nn.relu,
+                                 use_bias=True, kernel_initializer=tf.random_normal_initializer)
+
+        reconstruction_loss = tf.reduce_mean(tf.square(layer3 - tf.reshape(X, (-1, 784))),
+                                             name='reconstruction_loss')
+
+    v_len = tf.sqrt(tf.reduce_sum(tf.square(v), axis=1) + EPSILON)
+
+    with tf.variable_scope('classification_loss'):
+        l = y * (tf.maximum(tf.zeros((1, 1), dtype=tf.float32), M_PLUS-v_len)**2) + \
+            LAMBDA * (1 - y) * (tf.maximum(tf.zeros((1, 1), dtype=tf.float32),
+                                           v_len - M_MINUS) ** 2)
+        classification_loss = tf.reduce_mean(l, name='classification_loss')
+
+    with tf.variable_scope('total_loss'):
+        loss = classification_loss + reconstruction_loss * RECONSTRUCTION_LOSS_CONT
+
+    train_step = tf.train.AdamOptimizer().minimize(loss)
