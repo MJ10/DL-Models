@@ -1,5 +1,9 @@
 import tensorflow as tf
+import pandas as pd
+import numpy as np
+import os
 
+VALIDATION_SIZE = 2000
 BATCH_SIZE, EPOCHS, ROUTING_ITERATIONS = 128, 100, 3
 LAMBDA = 0.5
 M_PLUS = 0.9
@@ -18,11 +22,79 @@ CAPSULE_OUT_DIM = 16
 CLASSES = 10
 RECON_NET_1, RECON_NET_2, RECON_NET_3 = 512, 1024, IMAGE_HEIGHT * IMAGE_WIDTH
 
+data = pd.read_csv('train.csv')
+
+train_df = data.iloc[:, 1:].values
+train_df = train_df.astype(np.float)
+
+train_df = np.multiply(train_df, 1.0 / 255.0)
+
+labels_flat = data.iloc[:, 0].values.ravel()
+
+
+def dense_to_one_hot(labels_dense, num_classes):
+    num_labels = labels_dense.shape[0]
+    index_offset = np.arange(num_labels) * num_classes
+    labels_one_hot = np.zeros((num_labels, num_classes))
+    labels_one_hot.flat[index_offset + labels_dense.ravel()] = 1
+    return labels_one_hot
+
+
+labels = dense_to_one_hot(labels_flat, CLASSES)
+labels = labels.astype(np.uint8)
+
+
+validation_data = train_df[:VALIDATION_SIZE]
+validation_labels = labels[:VALIDATION_SIZE]
+
+train_data = train_df[VALIDATION_SIZE:]
+train_labels = labels[VALIDATION_SIZE:]
+
+epochs_completed = 0
+index_in_epoch = 0
+num_examples = train_data.shape[0]
+
+
+def next_batch(batch_size):
+    global train_data
+    global train_labels
+    global index_in_epoch
+    global epochs_completed
+
+    start = index_in_epoch
+    index_in_epoch += batch_size
+
+    if index_in_epoch > num_examples:
+        # finished epoch
+        epochs_completed += 1
+        # shuffle the data
+        perm = np.arange(num_examples)
+        np.random.shuffle(perm)
+        train_data = train_data[perm]
+        train_labels = train_labels[perm]
+        # start next epoch
+        start = 0
+        index_in_epoch = batch_size
+        assert batch_size <= num_examples
+    end = index_in_epoch
+    return train_data[start:end], train_labels[start:end]
+
 
 def squash(x, axis):
     sq_norm = tf.reduce_sum(tf.square(x), axis=axis, keep_dims=True)
     scalar_factor = sq_norm / (1 + sq_norm) / tf.sqrt(sq_norm + EPSILON)
     return tf.multiply(scalar_factor, x)
+
+
+def save_checkpoint(sess, counter):
+    model_name = 'CapsuleNet'
+    checkpoint_dir = os.path.join('checkpoints', 'CapsuleNet')
+
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+    tf.train.Saver().save(sess,
+                          os.path.join(checkpoint_dir, model_name),
+                          global_step=counter)
 
 
 def placeholder(type, shape, name):
@@ -44,7 +116,7 @@ def main():
         conv1 = conv_layer(X, CONV_FILTERS, CONV_KERNEL_SIZE, CONV_STRIDE, 'CONV1')
 
     with tf.variable_scope('prime_caps'):
-        prime_caps = conv_layer(conv1,CAPSULE_DIM * CAPSULE_FILTERS, CAPSULE_KERNEL_SIZE,
+        prime_caps = conv_layer(conv1, CAPSULE_DIM * CAPSULE_FILTERS, CAPSULE_KERNEL_SIZE,
                                 CAPSULE_STRIDE, 'prime_caps')
 
         prime_caps = tf.reshape(prime_caps, shape=(BATCH_SIZE,
@@ -111,3 +183,30 @@ def main():
         loss = classification_loss + reconstruction_loss * RECONSTRUCTION_LOSS_CONT
 
     train_step = tf.train.AdamOptimizer().minimize(loss)
+
+    correct_prediction = tf.equal(tf.argmax(v_len, 1), tf.argmax(y, 1))
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float64))
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        display_step = 1
+
+        for e in range(EPOCHS):
+            for i in range(int(55000 / BATCH_SIZE)):
+                x_batch, y_batch = next_batch(BATCH_SIZE)
+
+                x_batch = tf.reshape(x_batch, shape=(-1, 28, 28, 1))
+
+                _, ls, acc = sess.run([train_step, loss, accuracy], feed_dict={X: x_batch,
+                                                                           y: y_batch})
+
+                if i % 5 == 0:
+                    print('Epoch: {}, Iteration: {} > Loss: {}, Accuracy: {}'.format(e, i, ls,
+                                                                                     acc))
+
+                if i % 50 == 0:
+                    save_checkpoint(sess, i)
+
+
+if __name__ == '__main__':
+    main()
