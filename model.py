@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 
-VALIDATION_SIZE = 2000
+VALIDATION_SIZE = 5000
 BATCH_SIZE, EPOCHS, ROUTING_ITERATIONS = 128, 100, 3
 LAMBDA = 0.5
 M_PLUS = 0.9
@@ -11,7 +11,7 @@ M_MINUS = 0.1
 EPSILON = 1e-15
 RECONSTRUCTION_LOSS_CONT = 5e-4 * 784
 IMAGE_HEIGHT = IMAGE_WIDTH = 28
-CONV_KERNEL_SIZE = 3
+CONV_KERNEL_SIZE = 9
 CONV_FILTERS = 256
 CONV_STRIDE = 1
 CAPSULE_STRIDE = 2
@@ -113,7 +113,7 @@ def main():
     y = placeholder(tf.float32, (None, CLASSES), 'y')
 
     with tf.variable_scope('conv1'):
-        conv1 = conv_layer(X, CONV_FILTERS, CONV_KERNEL_SIZE, CONV_STRIDE, 'CONV1')
+        conv1 = conv_layer(X, CONV_FILTERS, CONV_KERNEL_SIZE, CONV_STRIDE, 'conv_layer')
 
     with tf.variable_scope('prime_caps'):
         prime_caps = conv_layer(conv1, CAPSULE_DIM * CAPSULE_FILTERS, CAPSULE_KERNEL_SIZE,
@@ -122,7 +122,7 @@ def main():
         prime_caps = tf.reshape(prime_caps, shape=(BATCH_SIZE,
                                                    6 * 6 * CAPSULE_FILTERS, 1,
                                                    CAPSULE_DIM, 1))
-        prime_caps = tf.tile(prime_caps, [1, 1, CLASSES, 1, 1])
+        prime_caps = tf.tile(prime_caps, multiples=[1, 1, CLASSES, 1, 1])
 
         prime_caps = squash(prime_caps, axis=3)
 
@@ -131,7 +131,7 @@ def main():
                         shape=(1, 6 * 6 * CAPSULE_FILTERS,
                                CLASSES, CAPSULE_DIM, CAPSULE_OUT_DIM))
 
-    W = tf.tile(W, [BATCH_SIZE, 1, 1, 1, 1], 'tiledW')
+    W = tf.tile(W, multiples=[BATCH_SIZE, 1, 1, 1, 1], name='tiledW')
 
     with tf.variable_scope('capsule_to_digits'):
         u = tf.matmul(W, prime_caps, transpose_a=True)
@@ -174,10 +174,10 @@ def main():
     v_len = tf.sqrt(tf.reduce_sum(tf.square(v), axis=1) + EPSILON)
 
     with tf.variable_scope('classification_loss'):
-        l = y * (tf.maximum(tf.zeros((1, 1), dtype=tf.float32), M_PLUS-v_len)**2) + \
+        cl = y * (tf.maximum(tf.zeros((1, 1), dtype=tf.float32), M_PLUS-v_len)**2) + \
             LAMBDA * (1 - y) * (tf.maximum(tf.zeros((1, 1), dtype=tf.float32),
                                            v_len - M_MINUS) ** 2)
-        classification_loss = tf.reduce_mean(l, name='classification_loss')
+        classification_loss = tf.reduce_mean(cl, name='classification_loss')
 
     with tf.variable_scope('total_loss'):
         loss = classification_loss + reconstruction_loss * RECONSTRUCTION_LOSS_CONT
@@ -189,16 +189,15 @@ def main():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        display_step = 1
 
         for e in range(EPOCHS):
             for i in range(int(55000 / BATCH_SIZE)):
                 x_batch, y_batch = next_batch(BATCH_SIZE)
 
-                x_batch = tf.reshape(x_batch, shape=(-1, 28, 28, 1))
+                x_batch = x_batch.reshape((-1, IMAGE_WIDTH, IMAGE_HEIGHT, 1))
 
                 _, ls, acc = sess.run([train_step, loss, accuracy], feed_dict={X: x_batch,
-                                                                           y: y_batch})
+                                                                               y: y_batch})
 
                 if i % 5 == 0:
                     print('Epoch: {}, Iteration: {} > Loss: {}, Accuracy: {}'.format(e, i, ls,
