@@ -97,6 +97,23 @@ def save_checkpoint(sess, counter):
                           global_step=counter)
 
 
+def load(sess):
+    import re
+    print("Reading checkpoints...")
+    checkpoint_dir = os.path.join('checkpoints', 'CapsuleNet')
+
+    ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+    if ckpt and ckpt.model_checkpoint_path:
+        ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
+        tf.train.Saver().restore(sess, os.path.join(checkpoint_dir, ckpt_name))
+        counter = int(next(re.finditer("(\d+)(?!.*\d)", ckpt_name)).group(0))
+        print("Successfully read {}".format(ckpt_name))
+        return sess, counter
+    else:
+        print("Failed to find a checkpoint")
+        return None, 0
+
+
 def placeholder(type, shape, name):
     return tf.placeholder(type, shape=shape, name=name)
 
@@ -189,6 +206,12 @@ def main():
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+
+        temp, count = load(sess)
+
+        if temp:
+            print('Read from checkpoint')
+            sess = temp
 
         for e in range(EPOCHS):
             for i in range(int(55000 / BATCH_SIZE)):
