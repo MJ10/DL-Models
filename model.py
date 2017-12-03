@@ -132,16 +132,16 @@ def main():
     with tf.variable_scope('conv1'):
         conv1 = conv_layer(X, CONV_FILTERS, CONV_KERNEL_SIZE, CONV_STRIDE, 'conv_layer')
 
-    with tf.variable_scope('prime_caps'):
-        prime_caps = conv_layer(conv1, CAPSULE_DIM * CAPSULE_FILTERS, CAPSULE_KERNEL_SIZE,
-                                CAPSULE_STRIDE, 'prime_caps')
+    with tf.variable_scope('primary_caps'):
+        primary_caps = conv_layer(conv1, CAPSULE_DIM * CAPSULE_FILTERS, CAPSULE_KERNEL_SIZE,
+                                CAPSULE_STRIDE, 'primary_caps')
 
-        prime_caps = tf.reshape(prime_caps, shape=(BATCH_SIZE,
+        primary_caps = tf.reshape(primary_caps, shape=(BATCH_SIZE,
                                                    6 * 6 * CAPSULE_FILTERS, 1,
                                                    CAPSULE_DIM, 1))
-        prime_caps = tf.tile(prime_caps, multiples=[1, 1, CLASSES, 1, 1])
+        primary_caps = tf.tile(primary_caps, multiples=[1, 1, CLASSES, 1, 1])
 
-        prime_caps = squash(prime_caps, axis=3)
+        primary_caps = squash(primary_caps, axis=3)
 
     W = tf.get_variable('W', dtype=tf.float32,
                         initializer=tf.random_normal_initializer(stddev=0.1),
@@ -151,7 +151,7 @@ def main():
     W = tf.tile(W, multiples=[BATCH_SIZE, 1, 1, 1, 1], name='tiledW')
 
     with tf.variable_scope('capsule_to_digits'):
-        u = tf.matmul(W, prime_caps, transpose_a=True)
+        u = tf.matmul(W, primary_caps, transpose_a=True)
         u = tf.reshape(tf.squeeze(u), (-1, 6 * 6 * CAPSULE_FILTERS,
                                        CAPSULE_OUT_DIM, CLASSES), name='u')
 
