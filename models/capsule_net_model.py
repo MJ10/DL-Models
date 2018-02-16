@@ -44,7 +44,7 @@ class CapsuleNet(BaseModel):
 
         # Input Layer
         conv1 = tf.layers.conv2d(self.X, name='conv1', **self.conv1_params)
-        conv2 = tf.layers.conv2d(conv1, name='conv2d', **self.conv2_params)
+        conv2 = tf.layers.conv2d(conv1, name='conv2', **self.conv2_params)
 
         # Primary Capsules Layer
         caps1_raw = tf.reshape(conv2, shape=[-1, self.caps1_n_caps, self.caps1_n_dims],
@@ -66,9 +66,9 @@ class CapsuleNet(BaseModel):
         caps1_output_ex = tf.expand_dims(self.caps1_output, -1, name='caps1_output_ex')
         caps1_output_tile = tf.expand_dims(caps1_output_ex, 2, name='caps1_output_tile')
         self.caps1_output_tiled = tf.tile(caps1_output_tile, [1, 1, self.caps2_n_caps, 1, 1],
-                                     name='caps1_output_tiled')
+                                          name='caps1_output_tiled')
 
-        self.caps2_predicted = tf.multiply(W_tiled, self.caps1_output_tiled, name='caps2_predicted')
+        self.caps2_predicted = tf.matmul(W_tiled, self.caps1_output_tiled, name='caps2_predicted')
 
         # Routing By Agreement
         # Round 1
@@ -84,6 +84,7 @@ class CapsuleNet(BaseModel):
                                             [1, self.caps1_n_caps, 1, 1, 1],
                                             name='caps2_output_round1_tiled')
         agreement = tf.matmul(self.caps2_predicted, caps2_output_round1_tiled,
+                              transpose_a=True,
                               name='agreement')
         # Round 2
         raw_weights_round2 = tf.add(raw_weights, agreement, name='raw_weights_round2')
@@ -101,6 +102,7 @@ class CapsuleNet(BaseModel):
                                             [1, self.caps1_n_caps, 1, 1, 1],
                                             name='caps2_output_round2_tiled')
         agreement_round2 = tf.matmul(self.caps2_predicted, caps2_output_round2_tiled,
+                                     transpose_a=True,
                                      name='agreement_round2')
 
         # Round 3
@@ -133,11 +135,11 @@ class CapsuleNet(BaseModel):
                                       name='caps2_output_norm')
 
         self.present_err = tf.reshape(tf.square(tf.maximum(0., mplus - caps2_output_norm)),
-                                 shape=(-1, 10), name='present_err')
+                                      shape=(-1, 10), name='present_err')
         self.absent_err = tf.reshape(tf.square(tf.maximum(0., caps2_output_norm - mminus)),
-                                shape=(-1, 10), name='absent_err')
-        l = T * self.present_err + lambda_ * (1. - T) * self.absent_err
-        self.margin_loss = tf.reduce_mean(tf.reduce_sum(l, axis=1), name='margin_loss')
+                                     shape=(-1, 10), name='absent_err')
+        ls = T * self.present_err + lambda_ * (1. - T) * self.absent_err
+        self.margin_loss = tf.reduce_mean(tf.reduce_sum(ls, axis=1), name='margin_loss')
 
         # Reconstruction
         mask_with_labels = tf.placeholder_with_default(False, shape=(),
@@ -145,11 +147,11 @@ class CapsuleNet(BaseModel):
         recon_target = tf.cond(mask_with_labels, lambda: self.y, lambda: self.y_pred,
                                name='recon_target')
         self.recon_mask = tf.reshape(tf.one_hot(recon_target, depth=self.caps2_n_caps),
-                                shape=[-1, 1, self.caps2_n_caps, 1, 1],
-                                name='recon_mask')
+                                     shape=[-1, 1, self.caps2_n_caps, 1, 1],
+                                     name='recon_mask')
         self.decoder_in = tf.reshape(self.caps2_output * self.recon_mask,
-                                shape=[-1, self.caps2_n_caps * self.caps2_n_dims],
-                                name='decoder_in')
+                                     shape=[-1, self.caps2_n_caps * self.caps2_n_dims],
+                                     name='decoder_in')
         n_hidden = 512
         n_hidden2 = 1024
         n_out = 28 * 28
@@ -160,17 +162,16 @@ class CapsuleNet(BaseModel):
             hidden2 = tf.layers.dense(hidden1, n_hidden2, activation=tf.nn.relu,
                                       name='hidden2')
             self.decoder_output = tf.layers.dense(hidden2, n_out, activation=tf.nn.sigmoid,
-                                             name='decoder_output')
+                                                  name='decoder_output')
 
         X_flat = tf.reshape(self.X, [-1, n_out], name='X_flat')
         self.recon_loss = tf.reduce_mean(tf.square(X_flat - self.decoder_output), name='recon_loss')
 
-        loss = self.margin_loss + self.alpha * self.recon_loss
-        self.accuracy = tf.reduce_mean(tf.cast(tf.equal(self.y, self.y_pred)), name='accuracy')
+        self.loss = self.margin_loss + self.alpha * self.recon_loss
+        self.accuracy = tf.reduce_mean(tf.cast(tf.equal(self.y, self.y_pred), dtype=tf.float32), name='accuracy')
         self.optimizer = tf.train.AdamOptimizer()
-        self.training_step = self.optimizer.minimize(loss, name='training_step')
+        self.training_step = self.optimizer.minimize(self.loss, name='training_step')
         self.init = tf.global_variables_initializer()
 
     def init_saver(self):
         self.saver = tf.train.Saver()
-
