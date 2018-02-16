@@ -1,0 +1,7 @@
+{
+  "exp_name": "capsule_net",
+  "num_epochs": 10,
+  "num_iter_per_epoch": 1000,
+  "num_iter_val": 50,
+  "batch_size": 50
+}
