@@ -40,7 +40,6 @@ class CapsuleNetTrainer(BaseTrain):
 
     def train_step(self):
         batch_x, batch_y = self.data.next_batch(self.config.batch_size)
-        print(batch_y)
         _, loss = self.sess.run([self.model.training_step, self.model.loss],
                                 feed_dict={
                                     self.model.X: batch_x.reshape(-1, 28, 28, 1),
